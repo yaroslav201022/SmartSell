@@ -4,21 +4,30 @@ import time
 
 print("Бот пытается запуститься...")
 
-# Проверяем все переменные окружения (для отладки)
-print("Все переменные окружения:")
-for key, value in os.environ.items():
-    if 'TOKEN' in key:
-        print(f"  {key} = {value[:10]}...")
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '').strip()
 
-TELEGRAM_TOKEN = os.environ.get('8720043003:AAHgZKlAMo6T63maN-oFLa4EvqTwgxiiS4g')
+print(f"Длина токена: {len(TELEGRAM_TOKEN)}")
+print(f"Первые 10 символов: {TELEGRAM_TOKEN[:10] if TELEGRAM_TOKEN else 'НЕТ'}")
 
-if not TELEGRAM_TOKEN:
-    print("ОШИБКА: TELEGRAM_TOKEN не найден!")
-    print("Доступные переменные:", list(os.environ.keys()))
+if not TELEGRAM_TOKEN or len(TELEGRAM_TOKEN) < 40:
+    print("ОШИБКА: TELEGRAM_TOKEN не найден или слишком короткий!")
+    print(f"Значение: '{TELEGRAM_TOKEN}'")
     exit(1)
 
-print(f"Токен найден: {TELEGRAM_TOKEN[:10]}...")
-print("Библиотеки загружены")
+print("Токен найден, проверяю соединение с Telegram...")
+
+try:
+    test_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getMe"
+    test_response = requests.get(test_url, timeout=10)
+    if test_response.status_code == 200:
+        print("Соединение с Telegram успешно!")
+    else:
+        print(f"Ошибка соединения: {test_response.status_code}")
+        exit(1)
+except Exception as e:
+    print(f"Ошибка при проверке токена: {e}")
+    exit(1)
+
 print("Бот запущен и готов к работе!")
 
 last_id = None
@@ -36,9 +45,9 @@ while True:
                 
                 send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                 if text == '/start':
-                    requests.post(send_url, json={"chat_id": chat_id, "text": "Бот работает!"}, timeout=30)
+                    requests.post(send_url, json={"chat_id": chat_id, "text": "Бот работает! Отправь описание товара."}, timeout=30)
                 else:
                     requests.post(send_url, json={"chat_id": chat_id, "text": f"Ты написал: {text}"}, timeout=30)
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка в цикле: {e}")
     time.sleep(1)
