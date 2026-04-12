@@ -1,19 +1,24 @@
-print("Бот пытается запуститься...")
-
 import os
 import requests
 import time
 
-print("Библиотеки загружены")
+print("Бот пытается запуститься...")
+
+# Проверяем все переменные окружения (для отладки)
+print("Все переменные окружения:")
+for key, value in os.environ.items():
+    if 'TOKEN' in key:
+        print(f"  {key} = {value[:10]}...")
 
 TELEGRAM_TOKEN = os.environ.get('8720043003:AAHgZKlAMo6T63maN-oFLa4EvqTwgxiiS4g')
 
 if not TELEGRAM_TOKEN:
-    print("ОШИБКА: TELEGRAM_TOKEN не найден в переменных окружения!")
+    print("ОШИБКА: TELEGRAM_TOKEN не найден!")
+    print("Доступные переменные:", list(os.environ.keys()))
     exit(1)
-else:
-    print(f"Токен найден: {TELEGRAM_TOKEN[:10]}...")
 
+print(f"Токен найден: {TELEGRAM_TOKEN[:10]}...")
+print("Библиотеки загружены")
 print("Бот запущен и готов к работе!")
 
 last_id = None
@@ -30,7 +35,10 @@ while True:
                 text = msg['text']
                 
                 send_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                requests.post(send_url, json={"chat_id": chat_id, "text": f"Ты написал: {text}"}, timeout=30)
+                if text == '/start':
+                    requests.post(send_url, json={"chat_id": chat_id, "text": "Бот работает!"}, timeout=30)
+                else:
+                    requests.post(send_url, json={"chat_id": chat_id, "text": f"Ты написал: {text}"}, timeout=30)
     except Exception as e:
         print(f"Ошибка: {e}")
     time.sleep(1)
