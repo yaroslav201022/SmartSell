@@ -22,7 +22,7 @@ def get_deepseek(prompt):
             "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 800,
-            "temperature": 0.5
+            "temperature": 0.7
         },
         timeout=60
     )
@@ -32,7 +32,15 @@ def get_deepseek(prompt):
 
 def analyze_market(item_name):
     prompt = f"""Ты — аналитик рынка Avito. Проанализируй товар: "{item_name}"
-Ответь ТОЛЬКО JSON: {{"min_price": число, "max_price": число, "recommended_price": число, "advice": "совет"}}"""
+Ответь ТОЛЬКО JSON:
+{{
+    "min_price": число,
+    "max_price": число,
+    "avg_price": число,
+    "trend": "растёт/падает/стабилен",
+    "sell_time": "быстро/средне/медленно",
+    "advice": "короткий совет"
+}}"""
     try:
         response = get_deepseek(prompt)
         match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -44,7 +52,15 @@ def analyze_market(item_name):
 
 def get_description(item_name):
     prompt = f"""Напиши ОДНО продающее описание для Avito товара: {item_name}
-Стиль: деловой, серьёзный. 3-4 предложения. Без сленга. Без фраз "торг уместен". Только текст описания."""
+
+Правила:
+- Пиши как человек, естественно и без шаблонов
+- Не придумывай то, чего нет в описании
+- Укажи состояние, комплектацию, ключевые особенности
+- Длина: 3-4 предложения
+- Не используй фразы: "торг уместен", "цена договорная", "продам в связи с переездом"
+
+Напиши только текст описания."""
     return get_deepseek(prompt)
 
 def get_updates(offset=None):
@@ -67,16 +83,44 @@ while True:
                 continue
             chat_id = msg['chat']['id']
             text = msg.get('text', '')
+            
             if text == '/start':
-                send_message(chat_id, "Отправьте описание товара — я сделаю анализ и продающее описание")
+                welcome = """🏢 SmartSell PRO — профессиональный помощник по продажам
+
+Что я делаю:
+• Анализирую рынок и даю точную цену
+• Пишу продающее описание (естественно, без шаблонов)
+
+Просто отправьте описание товара:
+«Nike Air Max 90, размер 42, отличное состояние, полная комплектация»"""
+                send_message(chat_id, welcome)
                 continue
+            
             if text:
-                send_message(chat_id, "📊 Анализирую...")
+                send_message(chat_id, "📊 Анализирую рынок и готовлю описание...")
+                
+                # Анализ рынка
                 market = analyze_market(text)
                 if market:
-                    send_message(chat_id, f"💰 Рек. цена: {market.get('recommended_price', '?')} руб.\n💡 {market.get('advice', '')}")
-                desc = get_description(text)
-                send_message(chat_id, f"📝 Описание:\n{desc}")
+                    market_text = f"""📈 *Анализ рынка*
+
+💰 Цены на Avito:
+• Минимальная: {market.get('min_price', '?')} руб.
+• Максимальная: {market.get('max_price', '?')} руб.
+• Средняя: {market.get('avg_price', '?')} руб.
+
+📊 Тренд: {market.get('trend', '?')}
+⏱️ Скорость продажи: {market.get('sell_time', '?')}
+
+💡 Совет: {market.get('advice', '')}"""
+                    send_message(chat_id, market_text)
+                else:
+                    send_message(chat_id, "⚠️ Не удалось проанализировать рынок.")
+                
+                # Описание
+                description = get_description(text)
+                send_message(chat_id, f"📝 *Описание для Avito:*\n\n{description}")
+                
     except Exception as e:
         print(f"Ошибка: {e}")
         time.sleep(5)
