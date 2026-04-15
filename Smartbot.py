@@ -3,124 +3,120 @@ import requests
 import time
 import json
 import re
+import google.generativeai as genai
 
-TELEGRAM_TOKEN = "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc"
-DEEPSEEK_API_KEY = "sk-92d2a007832043e5a482856694a2be73"  # ВСТАВЬТЕ ВАШ КЛЮЧ
+# Настройки (Рекомендуется использовать переменные окружения)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AlzaSyBsunXzA9PrgGiFzfVrdJjwOHdn-DYwaqro")
+
+genai.configure(api_key=GEMINI_API_KEY)
+# Используем системную инструкцию для более стабильного JSON
+model = genai.GenerativeModel(
+    model_name='gemini-1.5-flash',
+    generation_config={"response_mime_type": "application/json"}
+)
 
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=30)
+        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=30)
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка отправки сообщения: {e}")
 
-def get_deepseek(prompt):
-    response = requests.post(
-        "https://api.deepseek.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-        json={
-            "model": "deepseek-chat",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 800,
-            "temperature": 0.7
-        },
-        timeout=60
-    )
-    if response.status_code == 200:
-        return response.json()['choices'][0]['message']['content']
-    return f"Ошибка API: {response.status_code}"
+def get_file_path(file_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}"
+    r = requests.get(url).json()
+    return r['result']['file_path']
 
-def analyze_market(item_name):
-    prompt = f"""Ты — аналитик рынка Avito. Проанализируй товар: "{item_name}"
-Ответь ТОЛЬКО JSON:
-{{
-    "min_price": число,
-    "max_price": число,
-    "avg_price": число,
-    "trend": "растёт/падает/стабилен",
-    "sell_time": "быстро/средне/медленно",
-    "advice": "короткий совет"
-}}"""
+def download_file(file_path):
+    url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+    r = requests.get(url)
+    return r.content
+
+def analyze_all(item_text=None, image_bytes=None):
+    prompt = f"""Ты — эксперт по продажам на Avito. 
+    Проанализируй товар {f'из описания: "{item_text}"' if item_text else 'по предоставленному фото'}.
+    
+    1. Определи, что это за товар.
+    2. Напиши ОДНО идеальное продающее описание (3-4 предложения, без клише).
+    3. Проведи анализ рынка.
+    
+    Верни ответ СТРОГО в формате JSON:
+    {{
+        "name": "точное название товара",
+        "description": "текст описания",
+        "min_price": число,
+        "max_price": число,
+        "avg_price": число,
+        "trend": "растёт/падает/стабилен",
+        "advice": "короткий совет по продаже"
+    }}"""
+
     try:
-        response = get_deepseek(prompt)
-        match = re.search(r'\{.*\}', response, re.DOTALL)
-        if match:
-            return json.loads(match.group())
+        content = [prompt]
+        if image_bytes:
+            content.append({'mime_type': 'image/jpeg', 'data': image_bytes})
+        
+        response = model.generate_content(content)
+        
+        # Парсим JSON (с учетом того, что Gemini 1.5 Flash хорошо держит формат)
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Ошибка анализа Gemini: {e}")
         return None
-    except:
-        return None
-
-def get_description(item_name):
-    prompt = f"""Напиши ОДНО продающее описание для Avito товара: {item_name}
-
-Правила:
-- Пиши как человек, естественно и без шаблонов
-- Не придумывай то, чего нет в описании
-- Укажи состояние, комплектацию, ключевые особенности
-- Длина: 3-4 предложения
-- Не используй фразы: "торг уместен", "цена договорная", "продам в связи с переездом"
-
-Напиши только текст описания."""
-    return get_deepseek(prompt)
 
 def get_updates(offset=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     try:
         r = requests.get(url, params={"timeout": 30, "offset": offset}, timeout=35)
         return r.json().get('result', [])
-    except:
+    except Exception as e:
+        print(f"Ошибка получения обновлений: {e}")
         return []
 
-print("✅ SmartSell Pro запущен!")
+print("🚀 SmartSell Pro запущен!")
 
 last_id = None
 while True:
     try:
-        for update in get_updates(last_id):
+        updates = get_updates(last_id)
+        for update in updates:
             last_id = update['update_id'] + 1
             msg = update.get('message')
-            if not msg:
-                continue
+            if not msg: continue
+            
             chat_id = msg['chat']['id']
-            text = msg.get('text', '')
-            
+            photo = msg.get('photo')
+            text = msg.get('text')
+            caption = msg.get('caption')
+
             if text == '/start':
-                welcome = """🏢 SmartSell PRO — профессиональный помощник по продажам
-
-Что я делаю:
-• Анализирую рынок и даю точную цену
-• Пишу продающее описание (естественно, без шаблонов)
-
-Просто отправьте описание товара:
-«Nike Air Max 90, размер 42, отличное состояние, полная комплектация»"""
-                send_message(chat_id, welcome)
+                send_message(chat_id, "👋 Привет! Пришлите фото товара или его название — я составлю описание и оценю цену.")
                 continue
-            
-            if text:
-                send_message(chat_id, "📊 Анализирую рынок и готовлю описание...")
-                
-                # Анализ рынка
-                market = analyze_market(text)
-                if market:
-                    market_text = f"""📈 *Анализ рынка*
 
-💰 Цены на Avito:
-• Минимальная: {market.get('min_price', '?')} руб.
-• Максимальная: {market.get('max_price', '?')} руб.
-• Средняя: {market.get('avg_price', '?')} руб.
+            item_data = None
+            if photo:
+                send_message(chat_id, "📸 Изучаю фото...")
+                file_id = photo[-1]['file_id']
+                file_path = get_file_path(file_id)
+                image_bytes = download_file(file_path)
+                item_data = analyze_all(item_text=caption, image_bytes=image_bytes)
+            elif text:
+                send_message(chat_id, "📊 Анализирую текст...")
+                item_data = analyze_all(item_text=text)
 
-📊 Тренд: {market.get('trend', '?')}
-⏱️ Скорость продажи: {market.get('sell_time', '?')}
+            if item_data:
+                res = (f"📦 *Товар:* {item_data.get('name')}\n\n"
+                       f"📝 *Описание:* {item_data.get('description')}\n\n"
+                       f"💰 *Цены:*\n"
+                       f"• Средняя: {item_data.get('avg_price')}₽\n"
+                       f"• Диапазон: {item_data.get('min_price')} - {item_data.get('max_price')}₽\n\n"
+                       f"📈 *Тренд:* {item_data.get('trend')}\n"
+                       f"💡 *Совет:* {item_data.get('advice')}")
+                send_message(chat_id, res)
+            elif not text == '/start':
+                send_message(chat_id, "❌ Не удалось проанализировать товар. Попробуйте другое фото или текст.")
 
-💡 Совет: {market.get('advice', '')}"""
-                    send_message(chat_id, market_text)
-                else:
-                    send_message(chat_id, "⚠️ Не удалось проанализировать рынок.")
-                
-                # Описание
-                description = get_description(text)
-                send_message(chat_id, f"📝 *Описание для Avito:*\n\n{description}")
-                
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Критическая ошибка цикла: {e}")
         time.sleep(5)
