@@ -8,7 +8,7 @@ from google.genai import types
 
 # --- НАСТРОЙКИ ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AlzaSyBsunXzA9PrgGiFzfVrdJjwOHdn-DYwaqro")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDqt_jrbpsNYQq4ZOiJLO47HcaFwepk8Ms")
 
 # Инициализация Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
