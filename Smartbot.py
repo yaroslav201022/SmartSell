@@ -1,135 +1,63 @@
-import os
-import requests
-import time
-import json
-import re
+import os, requests, time, json, re
 from google import genai
 from google.genai import types
 
-# --- НАСТРОЙКИ ---
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDqt_jrbpsNYQq4ZOiJLO47HcaFwepk8Ms")
+# --- НАСТРОЙКИ (ОБЯЗАТЕЛЬНО ЗАПОЛНИ) ---
+TELEGRAM_TOKEN = "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc"
+GEMINI_API_KEY = "AIzaSyDqt_jrbpsNYQq4ZOiJLO47HcaFwepk8Ms" 
 
-# Инициализация Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_ID = "gemini-1.5-flash"
 
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={
-            "chat_id": chat_id, 
-            "text": text, 
-            "parse_mode": "Markdown"
-        }, timeout=30)
-    except Exception as e:
-        print(f"Ошибка отправки: {e}")
-
-def get_file_path(file_id):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}"
-    r = requests.get(url).json()
-    return r['result']['file_path']
-
-def download_file(file_path):
-    # Исправленный URL скачивания
-    url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-    r = requests.get(url)
-    return r.content
+        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=10)
+    except: pass
 
 def analyze_all(item_text=None, image_bytes=None):
-    """
-    Анализ товара через Gemini 1.5 Flash
-    """
-    prompt = """Ты — эксперт по продажам на Avito. 
-    Проанализируй товар. Напиши ОДНО идеальное продающее описание (3-4 предложения).
-    Верни ответ СТРОГО в формате JSON на русском языке:
-    {
-        "name": "точное название товара",
-        "description": "текст описания",
-        "min_price": число,
-        "max_price": число,
-        "avg_price": число,
-        "trend": "растёт/падает/стабилен",
-        "advice": "короткий совет по продаже"
-    }"""
-
+    prompt = "Ты эксперт Avito. Проанализируй товар. Напиши краткое описание. Верни СТРОГО JSON: {\"name\": \"название\", \"description\": \"текст\", \"avg_price\": \"цена\", \"advice\": \"совет\"}"
     try:
         content = [prompt]
-        if item_text:
-            content.append(f"Контекст от пользователя: {item_text}")
-        if image_bytes:
-            content.append(types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'))
-
-        # Запрос к AI
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=content
-        )
+        if item_text: content.append(f"Запрос: {item_text}")
+        if image_bytes: content.append(types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'))
         
-        # Извлекаем JSON из ответа (убираем возможный лишний текст)
+        response = client.models.generate_content(model="gemini-1.5-flash", contents=content)
         match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        return None
+        return json.loads(match.group()) if match else None
     except Exception as e:
-        print(f"Ошибка анализа: {e}")
+        print(f"Ошибка AI: {e}")
         return None
-
-def get_updates(offset=None):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    try:
-        r = requests.get(url, params={"timeout": 30, "offset": offset}, timeout=35)
-        return r.json().get('result', [])
-    except:
-        return []
-
-print("🚀 SmartSell Pro запущен и готов к работе!")
 
 last_id = None
+print("🚀 Бот запущен!")
+
 while True:
     try:
-        updates = get_updates(last_id)
-        for update in updates:
+        res = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates", params={"offset": last_id, "timeout": 20}).json()
+        for update in res.get('result', []):
             last_id = update['update_id'] + 1
             msg = update.get('message')
             if not msg: continue
-            
             chat_id = msg['chat']['id']
-            photo = msg.get('photo')
-            text = msg.get('text')
-            caption = msg.get('caption')
-
-            if text == '/start':
-                send_message(chat_id, "🤖 Привет! Я помогу оценить товар для Avito.\n\nПришли мне **название товара** или **фото**, и я проанализирую рынок!")
+            
+            if msg.get('text') == '/start':
+                send_message(chat_id, "Привет! Пришли название товара или фото.")
                 continue
 
-            item_data = None
-            
-            if photo:
-                send_message(chat_id, "📸 Вижу фото, анализирую...")
-                file_id = photo[-1]['file_id']
-                file_path = get_file_path(file_id)
-                image_bytes = download_file(file_path)
-                item_data = analyze_all(item_text=caption, image_bytes=image_bytes)
-            elif text:
-                send_message(chat_id, "📊 Ищу информацию по названию...")
-                item_data = analyze_all(item_text=text)
+            if msg.get('photo'):
+                send_message(chat_id, "📸 Изучаю фото...")
+                file_info = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={msg['photo'][-1]['file_id']}").json()
+                img_data = requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info['result']['file_path']}").content
+                data = analyze_all(item_text=msg.get('caption'), image_bytes=img_data)
+            elif msg.get('text'):
+                send_message(chat_id, "📊 Анализирую...")
+                data = analyze_all(item_text=msg.get('text'))
 
-            if item_data:
-                res = (
-                    f"📦 *Товар:* {item_data.get('name')}\n\n"
-                    f"📝 *Описание:* {item_data.get('description')}\n\n"
-                    f"💰 *Цены:*\n"
-                    f"• Средняя: {item_data.get('avg_price')}₽\n"
-                    f"• Диапазон: {item_data.get('min_price')} - {item_data.get('max_price')}₽\n\n"
-                    f"📈 *Тренд:* {item_data.get('trend')}\n"
-                    f"💡 *Совет:* {item_data.get('advice')}"
-                )
-                send_message(chat_id, res)
+            if data:
+                res_text = f"📦 *{data.get('name')}*\n\n{data.get('description')}\n\n💰 *Цена:* {data.get('avg_price')}\n💡 *Совет:* {data.get('advice')}"
+                send_message(chat_id, res_text)
             else:
-                if text != '/start':
-                    send_message(chat_id, "❌ Не удалось распознать товар. Попробуй еще раз или напиши название текстом.")
-
+                send_message(chat_id, "❌ Не удалось распознать. Попробуй еще раз.")
     except Exception as e:
-        print(f"Ошибка в цикле: {e}")
-        time.sleep(5)
+        print(f"Ошибка: {e}")
+        time.sleep(2)
