@@ -7,8 +7,8 @@ import base64
 
 # --- НАСТРОЙКИ ---
 TELEGRAM_TOKEN = "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc"
-YANDEX_API_KEY = "AQVN2rb8ui_yOuciZ-FUFWHg-DnYqUCCrScke9Jh"
-FOLDER_ID = "b1gb3ata3o666f6rk33a"
+YANDEX_API_KEY = "AQVNwTN0DIGQEXuBQZc3lyx_FZJ5G22pp1WSQw-C"
+FOLDER_ID = "b1gncknlc4lj0a8rlnla"
 
 # --- ФУНКЦИИ ТЕЛЕГРАМА ---
 
