@@ -86,12 +86,7 @@ def analyze_avito(item_text=None, image_bytes=None):
 # --- ОСНОВНОЙ ЦИКЛ ---
 
 offset = 0
-print("💰 SmartSell Pro (Yandex Vision) запущен!")
-
-while True:
-    try:
-        updates_url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
-        r = requests.get(updates_url, params={"offset": offset, "timeout": 30}).json()
+print("💰 SmartSell Pro (Yandex Vision) запущен!")json()
         
         for update in r.get("result", []):
             offset = update["update_id"] + 1
