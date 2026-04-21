@@ -5,135 +5,131 @@ import json
 import re
 import base64
 
-# --- НАСТРОЙКИ ---
-TELEGRAM_TOKEN = "8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc"
-YANDEX_API_KEY = "AQVNwTN0DIGQEXuBQZc3lyx_FZJ5G22pp1WSQw-C"
-FOLDER_ID = "b1gncknlc4lj0a8rlnla"
-
-# --- ФУНКЦИИ ТЕЛЕГРАМА ---
+# --- ПОЛУЧЕНИЕ НАСТРОЕК ---
+TOKEN = os.getenv("8720043003:AAFAdFvep5cKT02mzu2VG71USVwsJFrJYVc")
+API_KEY = os.getenv("AQVN2rb8ui_yOuciZ-FUFWHg-DnYqUCCrScke9Jh")
+FOLDER_ID = os.getenv("b1gb3ata3o666f6rk33a")
 
 def send_message(chat_id, text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=30)
     except Exception as e:
-        print(f"Ошибка отправки сообщения: {e}")
+        print(f"Ошибка отправки: {e}")
 
 def get_file_path(file_id):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}"
+    url = f"https://api.telegram.org/bot{TOKEN}/getFile?file_id={file_id}"
     return requests.get(url).json()['result']['file_path']
 
 def download_file(file_path):
-    url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
     return requests.get(url).content
 
-# --- ФУНКЦИЯ YANDEX GPT ---
+# --- ФУНКЦИЯ АНАЛИЗА (Vision + GPT) ---
 
 def analyze_avito(item_text=None, image_bytes=None):
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     
-    # Промпт, заточенный под Авито
-    system_prompt = """Ты — профессиональный аналитик маркетплейса Avito.
-    Твоя задача: составить продающее описание и оценить цену товара.
-    Ответь СТРОГО в формате JSON (без лишнего текста):
-    {
-        "item_name": "название товара",
-        "description": "продающее описание (3-4 предложения)",
-        "price_min": число,
-        "price_max": число,
-        "price_avg": число,
-        "trend": "растёт/стабилен/падает",
-        "advice": "короткий совет по быстрой продаже"
-    }"""
-    
-    user_input = f"Товар: {item_text}" if item_text else "Проанализируй товар на фото."
-    
-    messages = [
-        {"role": "system", "text": system_prompt},
-        {"role": "user", "text": user_input}
-    ]
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Api-Key {API_KEY}"
+    }
 
-    # Примечание: Для полноценного Vision (анализа фото) в Яндексе используется модель 'yandexgpt-with-vision'
-    # Если она еще не активна в твоем тарифе, используй 'yandexgpt/latest' для текста
+    # Формируем контент запроса
+    prompt = "Ты — эксперт Авито. Оцени товар на фото или по описанию. Напиши продающее описание и цены. Ответь ТОЛЬКО в формате JSON: {'item_name': '...', 'description': '...', 'price_min': 0, 'price_max': 0, 'price_avg': 0, 'trend': '...', 'advice': '...'}"
+    if item_text:
+        prompt += f" Контекст: {item_text}"
+
+    # Собираем мультимодальное сообщение
+    user_content = [{"type": "text", "text": prompt}]
+    
+    if image_bytes:
+        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+        user_content.append({
+            "type": "image",
+            "image": {
+                "content": encoded_image
+            }
+        })
+
     payload = {
         "modelUri": f"gpt://{FOLDER_ID}/yandexgpt/latest",
         "completionOptions": {"temperature": 0.5, "maxTokens": 1500},
-        "messages": messages
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Api-Key {YANDEX_API_KEY}"
+        "messages": [
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload)
+        response = requests.post(url, headers=headers, json=payload, timeout=40)
         res_data = response.json()
+        
+        if 'result' not in res_data:
+            print(f"Ошибка API: {res_data}")
+            return None
+
         raw_text = res_data['result']['alternatives'][0]['message']['text']
         
-        # Очистка JSON
-        clean_json = re.search(r'\{.*\}', raw_text, re.DOTALL).group()
-        return json.loads(clean_json)
+        # Поиск JSON в тексте
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return None
     except Exception as e:
-        print(f"Ошибка Yandex API: {e}")
+        print(f"Ошибка в analyze_avito: {e}")
         return None
 
 # --- ОСНОВНОЙ ЦИКЛ ---
 
-def get_updates(offset=None):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    try:
-        r = requests.get(url, params={"timeout": 30, "offset": offset}, timeout=35)
-        return r.json().get('result', [])
-    except: return []
+offset = 0
+print("💰 SmartSell Pro (Yandex Vision) запущен!")
 
-print("💰 SmartSell Pro (Yandex) запущен и готов к торгам!")
-
-last_id = None
 while True:
     try:
-        for update in get_updates(last_id):
-            last_id = update['update_id'] + 1
-            msg = update.get('message')
+        updates_url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+        r = requests.get(updates_url, params={"offset": offset, "timeout": 30}).json()
+        
+        for update in r.get("result", []):
+            offset = update["update_id"] + 1
+            msg = update.get("message")
             if not msg: continue
             
-            chat_id = msg['chat']['id']
-            photo = msg.get('photo')
-            text = msg.get('text')
-            caption = msg.get('caption')
+            chat_id = msg["chat"]["id"]
+            text = msg.get("text")
+            photo = msg.get("photo")
+            caption = msg.get("caption")
 
-            if text == '/start':
-                send_message(chat_id, "🤝 Привет! Пришли название товара или фото, и я подготовлю всё для продажи на Avito.")
+            if text == "/start":
+                send_message(chat_id, "🤝 Привет! Пришли фото товара или название, и я сделаю описание для Авито.")
                 continue
 
             item_data = None
             if photo:
-                send_message(chat_id, "📸 Изучаю фото товара...")
+                send_message(chat_id, "📸 Изучаю фото товара через Yandex Vision...")
                 file_path = get_file_path(photo[-1]['file_id'])
                 img_bytes = download_file(file_path)
                 item_data = analyze_avito(item_text=caption, image_bytes=img_bytes)
             elif text:
-                send_message(chat_id, "📊 Анализирую рынок...")
+                send_message(chat_id, "📊 Анализирую рынок по названию...")
                 item_data = analyze_avito(item_text=text)
 
             if item_data:
-                res = f"""📦 *Товар:* {item_data.get('item_name')}
-
-📝 *Описание для Avito:*
-{item_data.get('description')}
-
-💰 *Анализ цен:*
-• Средняя: {item_data.get('price_avg')}₽
-• Диапазон: {item_data.get('price_min')} - {item_data.get('price_max')}₽
-
-📈 *Тренд:* {item_data.get('trend')}
-💡 *Совет:* {item_data.get('advice')}"""
+                res = (
+                    f"📦 *Товар:* {item_data.get('item_name')}\n\n"
+                    f"📝 *Описание:*\n{item_data.get('description')}\n\n"
+                    f"💰 *Цены:* {item_data.get('price_min')} - {item_data.get('price_max')}₽\n"
+                    f"📈 *Тренд:* {item_data.get('trend')}\n"
+                    f"💡 *Совет:* {item_data.get('advice')}"
+                )
                 send_message(chat_id, res)
             else:
-                if text != '/start':
-                    send_message(chat_id, "⚠️ Ошибка анализа. Попробуй еще раз или напиши название текстом.")
-
+                if text != "/start":
+                    send_message(chat_id, "⚠️ Не удалось распознать товар. Попробуй еще раз.")
+                    
     except Exception as e:
-        print(f"Ошибка цикла: {e}")
-        time.sleep(5)
+        print(f"Ошибка: {e}")
+        time.sleep(3)
